@@ -8,8 +8,6 @@ The IPC-2605N is also probably vulnerable, but I do not have one to test.
 Usage requires python3.9 or newer
 
 ```
-::text
-
 python3.9 ./zyxel_ipc_camera_pwn.py 10.0.0.1
 ```
 
