@@ -12,6 +12,7 @@ from io import StringIO, BytesIO
 if len(sys.argv) != 2:
   sys.stdout.write("usage:\n")
   sys.stdout.write(f"python3.9 {sys.argv[0]} IP_OF_CAMERA_TO_PWN\n")
+  sys.exit(1)
 
 hostname = sys.argv[1]
 
