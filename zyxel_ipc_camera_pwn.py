@@ -185,9 +185,8 @@ else:
 
 	entry_info.chksum = tarfile.calc_chksums(entry_info.tobuf())[0]
 
-	if add_file:
-		sys.stdout.write("injecting telnet server into %r\n" % (path,))
-		replacement_archive.addfile(entry_info, binary_file_data)
+	sys.stdout.write("injecting telnet server into %r\n" % (path,))
+	replacement_archive.addfile(entry_info, binary_file_data)
 
 replacement_archive.close()
 
